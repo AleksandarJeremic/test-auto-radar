@@ -32,9 +32,35 @@ Ekstenzija se budi samo na stranicama `polovniautomobili.com`:
 Zaštite od divljanja: najviše 40 skeniranja po stranici, i isti oglas sa istom
 cenom i kilometražom se ne šalje dvaput u istoj poseti.
 
-**Istorija nastaje samo iz ponovljenih viđenja** — jedan oglas viđen jednom je
-jedna tačka, ne istorija. U praksi: otvori svoje pretrage jednom dnevno. To je
-~30 sekundi i to je cela "obaveza" koju projekat ima prema tebi.
+### Automatsko skupljanje
+
+**Istorija nastaje samo iz ponovljenih viđenja** — oglas viđen jednom je jedna
+tačka, ne istorija. Da to ne zavisi od toga hoćeš li se svakog jutra setiti,
+ekstenzija ume i sama da obilazi tvoje pretrage.
+
+Upišeš URL-ove pretraga u popup, uključiš prekidač, i dalje ide samo: jednom u
+nekoliko minuta otvori **jednu** stranicu u pozadinskom tabu, pročita je,
+zatvori tab. Kad završi prvu stranu pretrage, doda sledeću u red; kad obiđe sve,
+vraća se na početak jer su cene možda mrdnule.
+
+| Podrazumevano | Vrednost | Čemu služi |
+|---|---|---|
+| `enabled` | **isključeno** | nikad ne kreće samo od instalacije |
+| `intervalMinutes` | 4 | prosečna pauza; ±40% nasumično da ritam ne bude mašinski |
+| `dailyCap` | 150 | tvrdi dnevni limit |
+| `revisitHours` | 24 | koliko stranica mora da ostari pre ponovne posete |
+| `maxDepth` | 15 | koliko strana pagiracije po pretrazi |
+
+Pokrivenost raste nedeljama, namerno: prvo prva strana svake pretrage, pa dublje,
+pa iznova. Radi samo dok je Chrome upaljen, nikad više od jednog taba odjednom, i
+poštuje `Disallow` listu iz njihovog `robots.txt` (lista je u `crawler.js`).
+
+> **Šta ovo jeste, a šta nije.** Nije headless browser, nema TLS impersonation ni
+> rešavanja izazova — to je tvoj Chrome, pa nema šta da se zaobilazi i nema šta
+> da pukne kad sajt promeni zaštitu. Ali automatizovan pristup je najverovatnije
+> protiv njihovih uslova korišćenja i bez zaobilaženja zaštite. Pri ovakvom tempu
+> je to saobraćaj koji se ne razlikuje od običnog korisnika; rizik je mali, nije
+> nula. Zato je podrazumevano isključeno i zato limiti stoje gde stoje.
 
 ## Pokretanje
 
@@ -135,8 +161,15 @@ SELECT via, COUNT(*) FROM snapshots GROUP BY via ORDER BY 2 DESC;
 
 Faza 1 — skupljanje i prikaz. Radi i testirano:
 
+```bash
+python3 server/server.py --port 8799 --db server/test.db   # pa u drugom terminalu:
+node extension/test/crawler.test.mjs                       # logika obilaska: 30/30
+```
+
 - ingest, detekcija promena, dopuna iz detaljne stranice, padovi cena: 16/16
 - parseri cena/km/godišta (sr-RS format): 23/23
+- crawler: robots lista, dedupe, dnevni limit, dubina, ponovna poseta,
+  odblokiranje zaglavljenog taba: 30/30
 - dashboard proveren uživo na 44 oglasa kroz 7 nedelja, u light i dark temi
 
 Nije još urađeno:

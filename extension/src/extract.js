@@ -338,6 +338,35 @@ const Radar = (() => {
     return 'other';
   }
 
+  /** Where this page sits in the result set, and whether another one follows.
+   *
+   *  "Next" is asserted only when the page itself links to page N+1 — guessing
+   *  from the URL alone would walk forever past the last result.
+   */
+  function paginationInfo() {
+    const current = Number(new URLSearchParams(location.search).get('page') || 1);
+    const pages = new Set();
+    for (const a of document.querySelectorAll('a[href*="page="]')) {
+      const m = (a.getAttribute('href') || '').match(/[?&]page=(\d+)/);
+      if (m) pages.add(Number(m[1]));
+    }
+
+    const hasNext = pages.has(current + 1) || !!document.querySelector('a[rel="next"]');
+    let nextUrl = null;
+    if (hasNext) {
+      const u = new URL(location.href);
+      u.searchParams.set('page', String(current + 1));
+      u.hash = '';
+      nextUrl = u.href;
+    }
+
+    return {
+      page: current,
+      next_url: nextUrl,
+      last_page_linked: pages.size ? Math.max(...pages) : current,
+    };
+  }
+
   function scan() {
     const type = pageType();
     let listings = [];
@@ -349,6 +378,7 @@ const Radar = (() => {
       page_type: type,
       url: location.href.split('#')[0],
       scanned_at: new Date().toISOString(),
+      pagination: type === 'search' ? paginationInfo() : null,
       listings: listings.filter((r) => r.external_id),
     };
   }

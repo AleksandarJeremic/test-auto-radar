@@ -6,6 +6,8 @@
  * price history to a connection refused would defeat the whole point.
  */
 
+import * as crawler from './crawler.js';
+
 const DEFAULTS = {
   serverUrl: 'http://127.0.0.1:8787',
   token: '',
@@ -68,12 +70,32 @@ async function flushQueue() {
   await bumpStats({ queued: remaining.length, lastFlushAt: new Date().toISOString() });
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
+chrome.runtime.onMessage.addListener((msg, sender, respond) => {
+  if (msg?.type === 'radar:crawl-status') {
+    crawler.status().then(respond);
+    return true;
+  }
+  if (msg?.type === 'radar:crawl-config') {
+    (async () => {
+      if (msg.seeds !== undefined) await crawler.setSeeds(msg.seeds);
+      if (msg.config) await crawler.setConfig(msg.config);
+      if (msg.reset) await crawler.resetFrontier();
+      respond({ ok: true, seeds: await crawler.seeds(), status: await crawler.status() });
+    })();
+    return true;
+  }
   if (msg?.type !== 'radar:listings') return false;
 
   (async () => {
+    // Tell the crawler the page is done before anything that might throw, so a
+    // server outage cannot strand an open tab or stall the frontier.
+    if (sender.tab?.id != null) {
+      await crawler.onPageReported(sender.tab.id, msg.payload).catch(() => {});
+    }
+
     const cfg = await settings();
     if (!cfg.enabled) return respond({ ok: false, reason: 'disabled' });
+    if (!msg.payload.listings.length) return respond({ ok: true, skipped: 'empty' });
 
     try {
       const result = await post(msg.payload, cfg);
@@ -96,8 +118,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
 });
 
 chrome.alarms.create('radar:flush', { periodInMinutes: 3 });
+// Beats every minute; the crawler decides for itself whether anything is due.
+chrome.alarms.create('radar:crawl', { periodInMinutes: 1 });
+
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === 'radar:flush') flushQueue();
+  if (a.name === 'radar:crawl') crawler.tick().catch((e) => console.warn('[Auto Radar] crawl', e));
+});
+
+// A crawl tab the user closes by hand must not leave the frontier marked busy.
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  const { 'radar:crawl:open': open } = await chrome.storage.local.get('radar:crawl:open');
+  if (open?.tabId === tabId) await chrome.storage.local.remove('radar:crawl:open');
 });
 
 chrome.runtime.onInstalled.addListener(() => chrome.storage.local.set(DEFAULTS));

@@ -40,7 +40,10 @@
       return true;
     });
 
-    if (!fresh.length) return;
+    // Reported even with nothing fresh: the crawler needs to know this page
+    // finished and where the next one is. The worker skips the POST when the
+    // listing array is empty.
+    if (!fresh.length && reason !== 'load') return;
 
     chrome.runtime.sendMessage(
       { type: 'radar:listings', payload: { ...payload, listings: fresh, reason } },

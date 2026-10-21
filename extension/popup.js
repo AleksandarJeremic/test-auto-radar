@@ -85,4 +85,78 @@ for (const id of ['serverUrl', 'token']) {
   });
 }
 
+// ------------------------------------------------------------------ crawler
+
+function sayCrawl(text, isError = false) {
+  const el = $('crawl-msg');
+  el.textContent = text;
+  el.className = isError ? 'err' : '';
+}
+
+const relative = (ts) => {
+  if (!ts) return '—';
+  const s = Math.round((ts - Date.now()) / 1000);
+  if (s <= 0) return 'uskoro';
+  return s < 90 ? `za ${s} s` : `za ${Math.round(s / 60)} min`;
+};
+
+async function refreshCrawl() {
+  const [status, cfg, seeds] = await Promise.all([
+    chrome.runtime.sendMessage({ type: 'radar:crawl-status' }),
+    chrome.storage.local.get('radar:crawl:config'),
+    chrome.storage.local.get('radar:crawl:seeds'),
+  ]);
+  const c = { intervalMinutes: 4, dailyCap: 150, ...(cfg['radar:crawl:config'] || {}) };
+
+  $('crawl-enabled').checked = !!status.enabled;
+  if (document.activeElement !== $('seeds')) {
+    $('seeds').value = (seeds['radar:crawl:seeds'] || []).join('\n');
+  }
+  if (document.activeElement !== $('interval')) $('interval').value = c.intervalMinutes;
+  if (document.activeElement !== $('cap')) $('cap').value = c.dailyCap;
+
+  $('c-frontier').textContent = `${status.dueNow} / ${status.frontierSize}`;
+  $('c-today').textContent = `${status.pagesToday} / ${status.dailyCap}`;
+  $('c-next').textContent = status.busy ? 'učitava…'
+    : !status.enabled ? 'isključeno'
+    : status.pagesToday >= status.dailyCap ? 'limit za danas'
+    : relative(status.nextRunAt);
+
+  if (status.lastError) sayCrawl(status.lastError, true);
+}
+
+$('crawl-save').addEventListener('click', async () => {
+  const urls = $('seeds').value.split('\n');
+  const res = await chrome.runtime.sendMessage({
+    type: 'radar:crawl-config',
+    seeds: urls,
+    config: {
+      enabled: $('crawl-enabled').checked,
+      intervalMinutes: Math.max(1, Number($('interval').value) || 4),
+      dailyCap: Math.max(1, Number($('cap').value) || 150),
+    },
+  });
+  const dropped = urls.filter((u) => u.trim()).length - res.seeds.length;
+  sayCrawl(dropped > 0
+    ? `Sačuvano. ${dropped} URL odbačeno (nije polovniautomobili.com ili je zabranjen).`
+    : `Sačuvano — ${res.seeds.length} pretraga.`, dropped > 0);
+  refreshCrawl();
+});
+
+$('crawl-reset').addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ type: 'radar:crawl-config', reset: true });
+  sayCrawl('Red obilaska resetovan na početne pretrage.');
+  refreshCrawl();
+});
+
+$('crawl-enabled').addEventListener('change', async () => {
+  await chrome.runtime.sendMessage({
+    type: 'radar:crawl-config',
+    config: { enabled: $('crawl-enabled').checked },
+  });
+  refreshCrawl();
+});
+
 loadSettings().then(refreshStats);
+refreshCrawl();
+setInterval(refreshCrawl, 5000);
