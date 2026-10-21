@@ -147,14 +147,16 @@ def main():
     ap = argparse.ArgumentParser(description="Auto Radar collector")
     ap.add_argument("--port", type=int, default=8787)
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--db", type=Path, default=db.DB_PATH,
+                    help="putanja do baze (za demo/test, da ne dira radar.db)")
     args = ap.parse_args()
 
-    Handler.conn = db.connect()
+    Handler.conn = db.connect(args.db)
     Handler.token = load_or_create_token()
 
     stats = db.summary(Handler.conn)
     print(f"\n  Auto Radar sluša na http://{args.host}:{args.port}")
-    print(f"  Baza: {db.DB_PATH}")
+    print(f"  Baza: {args.db}")
     print(f"  Token: {TOKEN_PATH}  (otvori fajl i nalepi u ekstenziju)")
     print(f"  Trenutno: {stats['listings']} oglasa, {stats['snapshots']} snimaka cena\n")
 

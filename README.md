@@ -18,6 +18,24 @@ Ekstenzija **ne pretražuje sama**: ne otvara tabove, ne šalje zahteve sajtu, n
 zaobilazi nikakvu zaštitu. Samo zapisuje ono što je bilo na ekranu dok si ti
 normalno pregledao oglase. Pregledanje je tvoje — ovo je beležnica.
 
+### Kada se skuplja
+
+Ekstenzija se budi samo na stranicama `polovniautomobili.com`:
+
+| Okidač | Kada |
+|---|---|
+| Učitavanje stranice | 600 ms pošto se DOM smiri |
+| Izmena DOM-a | ponovo, odloženo 600 ms (lazy-load, beskonačni scroll) |
+| SPA navigacija | promena URL-a bez reload-a, provera svake sekunde |
+| Ručno | dugme *Skeniraj stranicu* u popup-u |
+
+Zaštite od divljanja: najviše 40 skeniranja po stranici, i isti oglas sa istom
+cenom i kilometražom se ne šalje dvaput u istoj poseti.
+
+**Istorija nastaje samo iz ponovljenih viđenja** — jedan oglas viđen jednom je
+jedna tačka, ne istorija. U praksi: otvori svoje pretrage jednom dnevno. To je
+~30 sekundi i to je cela "obaveza" koju projekat ima prema tebi.
+
 ## Pokretanje
 
 **1. Collector**
@@ -52,6 +70,20 @@ Ako ne skoče, vidi *Kad parser ne uhvati* niže.
 
 > Collector ne mora da radi non-stop. Dok je ugašen, ekstenzija čuva sve u red
 > čekanja i pošalje kad se vrati.
+
+### Dev i produkcija
+
+`--db` i `--port` razdvajaju okruženja. Prava istorija cena je nezamenljiva —
+jednom posejani lažni podaci se ne mogu čisto razdvojiti od pravih, pa se svako
+isprobavanje radi nad zasebnom bazom:
+
+```bash
+python3 server/server.py                                    # prod: radar.db na 8787
+python3 server/server.py --port 8788 --db server/demo.db    # dev: demo.db na 8788
+```
+
+Sve `server/*.db` je u `.gitignore`. Ekstenzija gađa onaj port koji joj upišeš u
+popup-u, pa prebacivanje na dev znači samo izmenu porta tamo.
 
 ## Šta se čuva
 

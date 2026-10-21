@@ -1,7 +1,7 @@
 server/token.txt
-server/radar.db
-server/radar.db-wal
-server/radar.db-shm
+server/*.db
+server/*.db-wal
+server/*.db-shm
 __pycache__/
 *.pyc
 .DS_Store
