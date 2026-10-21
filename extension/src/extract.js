@@ -530,9 +530,21 @@ const Radar = (() => {
         acc[k] = payload.listings.filter((r) => r[k] != null && r[k] !== '').length;
         return acc;
       }, {}),
-      sample: payload.listings.slice(0, 3),
+      // A missing price is not automatically a parser miss: "Po dogovoru" ads
+      // have none to find. Counted separately so the two cannot be confused.
+      on_request: payload.listings.filter((r) => r.on_request).length,
+      no_price_no_reason: payload.listings.filter((r) => r.price == null && !r.on_request).length,
+      // The records that resolved worst — the ones worth looking at. Showing
+      // the first few instead would mostly show the ones already working.
+      weakest: [...payload.listings]
+        .sort((a, b) => resolved(a) - resolved(b))
+        .slice(0, 3),
+      sample: payload.listings.filter((r) => resolved(r) >= 4).slice(0, 1),
     };
   }
+
+  const DEBUG_FIELDS = ['price', 'mileage', 'year', 'title', 'fuel', 'transmission', 'brand', 'model'];
+  const resolved = (r) => DEBUG_FIELDS.filter((k) => r[k] != null && r[k] !== '').length;
 
   return { scan, debugReport, toNumber, parsePrice, parseMileage, parseYear, fromSlug, fromCardWords, SITE };
 })();
