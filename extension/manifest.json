@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Auto Radar",
+  "version": "0.1.0",
+  "description": "Beleži cene polovnih automobila koje pregledaš i gradi istoriju cena kroz vreme.",
+  "permissions": ["storage", "alarms", "tabs", "activeTab"],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.polovniautomobili.com/*"],
+      "js": ["src/extract.js", "src/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Auto Radar"
+  }
+}
