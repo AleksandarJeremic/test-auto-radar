@@ -17,11 +17,12 @@ import secrets
 import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import db
 
 TOKEN_PATH = Path(__file__).with_name("token.txt")
+DASHBOARD = Path(__file__).parent.parent / "dashboard" / "index.html"
 MAX_BODY = 8 * 1024 * 1024  # a search page of ~50 ads is well under 1 MB
 
 
@@ -79,23 +80,33 @@ class Handler(BaseHTTPRequestHandler):
         if route.path == "/health":
             return self._send(200, {"ok": True})
 
+        # The dashboard is served from this same loopback origin, so it gets the
+        # token baked in rather than asking the user to paste it twice.
+        if route.path in ("/", "/index.html"):
+            page = DASHBOARD.read_text(encoding="utf-8").replace("__RADAR_TOKEN__", self.token)
+            return self._send(200, page.encode(), "text/html; charset=utf-8")
+
         if not self._authorised():
             return self._send(401, {"error": "bad or missing X-Radar-Token"})
 
         try:
             if route.path == "/api/summary":
                 return self._send(200, db.summary(self.conn))
+            if route.path == "/api/models":
+                return self._send(200, db.models(self.conn))
             if route.path == "/api/listings":
                 return self._send(200, db.listings(
                     self.conn,
                     limit=min(int(query.get("limit", ["200"])[0]), 2000),
                     brand=query.get("brand", [None])[0],
+                    model=query.get("model", [None])[0],
                 ))
             if route.path == "/api/drops":
                 return self._send(200, db.price_drops(
                     self.conn, limit=min(int(query.get("limit", ["50"])[0]), 500)))
             if route.path.startswith("/api/history/"):
-                lid = route.path[len("/api/history/"):]
+                # Listing ids contain ":" — percent-decode before looking them up.
+                lid = unquote(route.path[len("/api/history/"):])
                 found = db.history(self.conn, lid)
                 return self._send(200 if found else 404, found or {"error": "not found"})
         except (ValueError, sqlite3.Error) as err:

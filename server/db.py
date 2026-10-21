@@ -242,22 +242,59 @@ def price_drops(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
     return [dict(r) | {"drop_pct": round(100 * (1 - r["price_now"] / r["price_before"]), 1)} for r in rows]
 
 
-def listings(conn: sqlite3.Connection, limit: int = 200, brand: str | None = None) -> list[dict]:
+def listings(
+    conn: sqlite3.Connection,
+    limit: int = 200,
+    brand: str | None = None,
+    model: str | None = None,
+) -> list[dict]:
     sql = """
         SELECT l.*, s.price AS price_now, s.mileage AS mileage_now, s.currency,
-               (SELECT COUNT(*) FROM snapshots x WHERE x.listing_id = l.id) AS snapshot_count
+               (SELECT COUNT(*) FROM snapshots x WHERE x.listing_id = l.id) AS snapshot_count,
+               CAST(julianday('now') - julianday(l.first_seen_at) AS INTEGER) AS days_tracked
           FROM listings l
           LEFT JOIN snapshots s ON s.id = (
                 SELECT id FROM snapshots y WHERE y.listing_id = l.id
                  ORDER BY seen_at DESC, id DESC LIMIT 1)
     """
+    where: list[str] = []
     params: list[Any] = []
     if brand:
-        sql += " WHERE LOWER(l.brand) = LOWER(?)"
+        where.append("LOWER(l.brand) = LOWER(?)")
         params.append(brand)
+    if model:
+        where.append("LOWER(l.model) = LOWER(?)")
+        params.append(model)
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY l.last_seen_at DESC LIMIT ?"
     params.append(limit)
     return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def models(conn: sqlite3.Connection) -> list[dict]:
+    """One row per brand+model, for the dashboard's picker.
+
+    Ads whose brand never got filled in (search cards are sparse until you open
+    the detail page) are grouped under a NULL model rather than dropped — they
+    still carry price history worth seeing.
+    """
+    rows = conn.execute(
+        """
+        SELECT l.brand, l.model, COUNT(*) AS n,
+               SUM(CASE WHEN s.price IS NOT NULL THEN 1 ELSE 0 END) AS n_priced,
+               CAST(AVG(s.price) AS INTEGER) AS avg_price,
+               MIN(s.price) AS min_price,
+               MAX(s.price) AS max_price
+          FROM listings l
+          LEFT JOIN snapshots s ON s.id = (
+                SELECT id FROM snapshots y WHERE y.listing_id = l.id
+                 ORDER BY seen_at DESC, id DESC LIMIT 1)
+         GROUP BY LOWER(COALESCE(l.brand,'')), LOWER(COALESCE(l.model,''))
+         ORDER BY n DESC
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def history(conn: sqlite3.Connection, listing_id: str) -> dict:

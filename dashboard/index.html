@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="sr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Auto Radar</title>
+<style>
+  :root {
+    color-scheme: light;
+    --plane:        #f9f9f7;
+    --surface-1:    #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary:#52514e;
+    --text-muted:   #898781;
+    --grid:         #e1e0d9;
+    --axis:         #c3c2b7;
+    --border:       rgba(11,11,11,0.10);
+    --series-1:     #2a78d6;
+    --div-low:      #2a78d6;   /* ispod linije */
+    --div-mid:      #f0efec;
+    --div-high:     #e34948;   /* iznad linije */
+    --good:         #006300;
+    --critical:     #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --plane:        #0d0d0d;
+      --surface-1:    #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary:#c3c2b7;
+      --text-muted:   #898781;
+      --grid:         #2c2c2a;
+      --axis:         #383835;
+      --border:       rgba(255,255,255,0.10);
+      --series-1:     #3987e5;
+      --div-low:      #3987e5;
+      --div-mid:      #383835;
+      --div-high:     #e66767;
+      --good:         #0ca30c;
+      --critical:     #d03b3b;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 24px 64px;
+    background: var(--plane); color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 22px; }
+  h1 { font-size: 19px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+  header .sub { color: var(--text-muted); font-size: 13px; }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 20px; margin-bottom: 18px;
+  }
+  .card > h2 {
+    font-size: 14px; font-weight: 620; margin: 0 0 2px;
+  }
+  .card > .note { color: var(--text-muted); font-size: 12.5px; margin: 0 0 14px; }
+
+  /* ---- stat tiles: a bare number beats a chart for a single value ---- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px;
+           background: var(--border); border: 1px solid var(--border); border-radius: 10px;
+           overflow: hidden; margin-bottom: 18px; }
+  .tile { background: var(--surface-1); padding: 16px 18px; }
+  .tile .label { font-size: 12px; color: var(--text-muted); margin-bottom: 5px; }
+  .tile .value { font-size: 27px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+  .tile .meta  { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+  select, button.toggle {
+    font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--surface-1); color: inherit; cursor: pointer;
+  }
+  button.toggle[aria-pressed="true"] { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+
+  svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .axis-line { stroke: var(--axis); stroke-width: 1; }
+  .tick { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .axis-title { fill: var(--text-secondary); font-size: 11.5px; }
+  .fit-line { stroke: var(--text-muted); stroke-width: 2; stroke-dasharray: 5 4; fill: none; }
+  .series-line { stroke: var(--series-1); stroke-width: 2; fill: none;
+                 stroke-linejoin: round; stroke-linecap: round; }
+  .dot { stroke: var(--surface-1); stroke-width: 2; cursor: pointer; }
+  .dot:hover { stroke: var(--text-primary); }
+  .hit { fill: transparent; cursor: pointer; }
+  .crosshair { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+
+  .legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+            font-size: 12px; color: var(--text-secondary); margin-top: 12px; }
+  .legend .scale { display: flex; align-items: center; gap: 7px; }
+  .legend .ramp { width: 82px; height: 9px; border-radius: 5px;
+                  background: linear-gradient(90deg, var(--div-low), var(--div-mid), var(--div-high)); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-weight: 580; font-size: 11.5px; color: var(--text-muted);
+       text-transform: uppercase; letter-spacing: .04em; padding: 0 10px 8px 0;
+       border-bottom: 1px solid var(--border); }
+  th.num, td.num { text-align: right; }
+  td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: 0; }
+  td a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--border); }
+  td a:hover { border-bottom-color: currentColor; }
+  .down { color: var(--good); font-weight: 600; }
+  .up   { color: var(--critical); font-weight: 600; }
+
+  .empty { color: var(--text-muted); font-size: 13px; padding: 26px 0; text-align: center; line-height: 1.7; }
+  .empty code { background: var(--plane); padding: 1.5px 6px; border-radius: 4px; font-size: 12px; }
+
+  #tip {
+    position: fixed; pointer-events: none; opacity: 0; transition: opacity .1s;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 11px; font-size: 12.5px; line-height: 1.5; max-width: 260px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.14); z-index: 20;
+  }
+  #tip b { font-weight: 620; }
+  #tip .k { color: var(--text-muted); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Auto Radar</h1>
+    <span class="sub" id="range">—</span>
+  </header>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="card">
+    <h2>Cena prema kilometraži</h2>
+    <p class="note" id="scatter-note">Svaka tačka je jedan oglas. Isprekidana linija je trend za izabrani model —
+      tačke ispod nje su jeftinije nego što im kilometraža nalaže.</p>
+    <div class="controls">
+      <select id="model-picker"><option>učitavam…</option></select>
+      <button class="toggle" id="scatter-table-toggle" aria-pressed="false">Tabela</button>
+    </div>
+    <div id="scatter"></div>
+    <div id="scatter-table" class="hidden"></div>
+    <div class="legend" id="scatter-legend"></div>
+  </div>
+
+  <div class="card">
+    <h2>Istorija cene</h2>
+    <p class="note" id="history-note">Klikni tačku u grafikonu iznad da vidiš kako se cena tog oglasa menjala.</p>
+    <div id="history"></div>
+  </div>
+
+  <div class="card">
+    <h2>Snižene cene</h2>
+    <p class="note">Oglasi čija je poslednja zabeležena cena niža od prethodne.</p>
+    <div id="drops"></div>
+  </div>
+
+</div>
+<div id="tip"></div>
+
+<script>
+const TOKEN = "__RADAR_TOKEN__";
+const $ = (id) => document.getElementById(id);
+
+const api = async (path) => {
+  const r = await fetch(path, { headers: { "X-Radar-Token": TOKEN } });
+  if (!r.ok) throw new Error(`${path} → HTTP ${r.status}`);
+  return r.json();
+};
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// sr-RS resolves to Cyrillic; the rest of the UI is Latin, so pin the script.
+const LOC = "sr-Latn-RS";
+const fmt = (n) => n == null ? "—" : n.toLocaleString(LOC);
+const eur = (n) => n == null ? "—" : "€" + n.toLocaleString(LOC);
+const km = (n) => n == null ? "—" : n.toLocaleString(LOC) + " km";
+const day = (s) => s ? new Date(s).toLocaleDateString(LOC, { day: "numeric", month: "short" }) : "—";
+
+// ---------------------------------------------------------------- tooltip
+
+const tip = $("tip");
+function showTip(evt, html) {
+  tip.innerHTML = html;
+  tip.style.opacity = "1";
+  const pad = 14, r = tip.getBoundingClientRect();
+  let x = evt.clientX + pad, y = evt.clientY + pad;
+  if (x + r.width > innerWidth - 8) x = evt.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = evt.clientY - r.height - pad;
+  tip.style.left = x + "px";
+  tip.style.top = y + "px";
+}
+const hideTip = () => { tip.style.opacity = "0"; };
+
+// ------------------------------------------------------------------ scale
+
+function scale(lo, hi, a, b) {
+  if (!(hi > lo)) { const mid = (a + b) / 2; return () => mid; }
+  return (v) => a + ((v - lo) / (hi - lo)) * (b - a);
+}
+
+/** Round axis bounds outward to a readable step. */
+function nice(lo, hi) {
+  // A single distinct value gets a tight band around itself. Snapping to zero
+  // here would pin the line to the top of an otherwise empty chart.
+  if (lo === hi) { const pad = Math.abs(lo) * 0.05 || 1; lo -= pad; hi += pad; }
+  const span = hi - lo;
+  const step = Math.pow(10, Math.floor(Math.log10(span / 4)));
+  const mult = [1, 2, 2.5, 5, 10].find((m) => span / (step * m) <= 5) ?? 10;
+  const s = step * mult;
+  return { lo: Math.floor(lo / s) * s, hi: Math.ceil(hi / s) * s, step: s };
+}
+
+// Top margin leaves room for the y-axis title to sit clear of the highest tick.
+const W = 860, H = 390, M = { t: 32, r: 20, b: 46, l: 66 };
+
+/** Axis ticks. Abbreviating to "k" is only safe when the step is at least
+ *  1000 — on a narrow band it would print the same label several times. */
+const eurTick = (v, step) => (step >= 1000 && Math.abs(v) >= 1000)
+  ? "€" + Math.round(v / 1000) + "k"
+  : "€" + Math.round(v).toLocaleString(LOC);
+
+function axes(xa, ya, xLabel, yLabel, fmtX, fmtY) {
+  let g = "";
+  for (let v = ya.lo; v <= ya.hi + 1e-6; v += ya.step) {
+    const y = ya.scale(v);
+    g += `<line class="grid-line" x1="${M.l}" x2="${W - M.r}" y1="${y}" y2="${y}" />`;
+    g += `<text class="tick" x="${M.l - 10}" y="${y + 4}" text-anchor="end">${fmtY(v, ya.step)}</text>`;
+  }
+  for (let v = xa.lo; v <= xa.hi + 1e-6; v += xa.step) {
+    const x = xa.scale(v);
+    g += `<text class="tick" x="${x}" y="${H - M.b + 20}" text-anchor="middle">${fmtX(v, xa.step)}</text>`;
+  }
+  g += `<line class="axis-line" x1="${M.l}" x2="${W - M.r}" y1="${H - M.b}" y2="${H - M.b}" />`;
+  g += `<text class="axis-title" x="${W - M.r}" y="${H - 6}" text-anchor="end">${esc(xLabel)}</text>`;
+  g += `<text class="axis-title" x="${M.l - 10}" y="${M.t - 14}" text-anchor="end">${esc(yLabel)}</text>`;
+  return g;
+}
+
+// ---------------------------------------------------------------- scatter
+
+let currentRows = [];
+
+/** Least squares price ~ mileage. Only meaningful once there are enough ads. */
+function fitLine(rows) {
+  const pts = rows.filter((r) => r.mileage_now != null && r.price_now != null);
+  if (pts.length < 8) return null;
+  const n = pts.length;
+  const mx = pts.reduce((s, p) => s + p.mileage_now, 0) / n;
+  const my = pts.reduce((s, p) => s + p.price_now, 0) / n;
+  const den = pts.reduce((s, p) => s + (p.mileage_now - mx) ** 2, 0);
+  if (den === 0) return null;
+  const slope = pts.reduce((s, p) => s + (p.mileage_now - mx) * (p.price_now - my), 0) / den;
+  return { slope, intercept: my - slope * mx, n };
+}
+
+/** Diverging fill: blue below the trend line, red above, neutral at zero.
+ *
+ *  Returned as a var()-based color-mix rather than a resolved hex, so the marks
+ *  follow a light/dark switch without re-rendering the chart.
+ */
+function residualColor(rel) {
+  const c = Math.max(-1, Math.min(1, rel));
+  const pole = c < 0 ? "--div-low" : "--div-high";
+  return `color-mix(in oklab, var(${pole}) ${Math.round(Math.abs(c) * 100)}%, var(--div-mid))`;
+}
+
+function renderScatter(rows) {
+  currentRows = rows;
+  const pts = rows.filter((r) => r.price_now != null && r.mileage_now != null);
+
+  if (pts.length < 2) {
+    $("scatter").innerHTML = `<div class="empty">
+      Još nema dovoljno oglasa sa cenom i kilometražom za ovaj model.<br>
+      Otvori pretragu na polovniautomobili.com — podaci stižu sami.</div>`;
+    $("scatter-legend").innerHTML = "";
+    $("scatter-table").innerHTML = "";
+    return;
+  }
+
+  const xa = nice(Math.min(...pts.map((p) => p.mileage_now)), Math.max(...pts.map((p) => p.mileage_now)));
+  const ya = nice(Math.min(...pts.map((p) => p.price_now)), Math.max(...pts.map((p) => p.price_now)));
+  xa.scale = scale(xa.lo, xa.hi, M.l, W - M.r);
+  ya.scale = scale(ya.lo, ya.hi, H - M.b, M.t);
+
+  const fit = fitLine(pts);
+  const spread = fit
+    ? Math.max(...pts.map((p) => Math.abs(p.price_now - (fit.intercept + fit.slope * p.mileage_now)))) || 1
+    : 1;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Cena prema kilometraži">`;
+  svg += axes(xa, ya, "kilometraža", "cena (€)",
+    (v) => (v / 1000).toFixed(0) + "k", eurTick);
+
+  if (fit) {
+    const y1 = fit.intercept + fit.slope * xa.lo, y2 = fit.intercept + fit.slope * xa.hi;
+    svg += `<line class="fit-line" x1="${xa.scale(xa.lo)}" y1="${ya.scale(y1)}" `
+         + `x2="${xa.scale(xa.hi)}" y2="${ya.scale(y2)}" />`;
+  }
+
+  pts.forEach((p, i) => {
+    const resid = fit ? p.price_now - (fit.intercept + fit.slope * p.mileage_now) : 0;
+    const fill = fit ? residualColor(resid / spread) : "var(--series-1)";
+    svg += `<circle class="dot" data-i="${i}" cx="${xa.scale(p.mileage_now)}" `
+         + `cy="${ya.scale(p.price_now)}" r="6" fill="${fill}" />`;
+  });
+
+  svg += `</svg>`;
+  $("scatter").innerHTML = svg;
+
+  $("scatter").querySelectorAll(".dot").forEach((el) => {
+    const p = pts[+el.dataset.i];
+    const resid = fit ? Math.round(p.price_now - (fit.intercept + fit.slope * p.mileage_now)) : null;
+    el.addEventListener("mousemove", (e) => showTip(e,
+      `<b>${esc(p.title || p.external_id)}</b><br>`
+      + `<span class="k">cena</span> ${eur(p.price_now)} &nbsp; <span class="k">km</span> ${fmt(p.mileage_now)}<br>`
+      + `<span class="k">godište</span> ${p.year ?? "—"} &nbsp; <span class="k">praćen</span> ${p.days_tracked ?? 0} d`
+      + (resid != null ? `<br><span class="k">vs trend</span> <b>${resid > 0 ? "+" : ""}${eur(resid).replace("€-", "-€")}</b>` : "")));
+    el.addEventListener("mouseleave", hideTip);
+    el.addEventListener("click", () => { hideTip(); loadHistory(p.id, p.title); });
+  });
+
+  $("scatter-legend").innerHTML = fit
+    ? `<div class="scale"><span>jeftinije od trenda</span><span class="ramp"></span><span>skuplje</span></div>
+       <span style="color:var(--text-muted)">trend iz ${fit.n} oglasa · klikni tačku za istoriju cene</span>`
+    : `<span style="color:var(--text-muted)">Trend linija se crta od 8 oglasa naviše — sad ih je ${pts.length}.</span>`;
+
+  $("scatter-table").innerHTML = `<table><thead><tr>
+      <th>Oglas</th><th class="num">Godište</th><th class="num">Km</th><th class="num">Cena</th><th class="num">Praćen</th>
+    </tr></thead><tbody>` +
+    pts.slice().sort((a, b) => a.price_now - b.price_now).map((p) => `<tr>
+      <td>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title || p.external_id)}</a>`
+                  : esc(p.title || p.external_id)}</td>
+      <td class="num">${p.year ?? "—"}</td><td class="num">${fmt(p.mileage_now)}</td>
+      <td class="num">${eur(p.price_now)}</td><td class="num">${p.days_tracked ?? 0} d</td>
+    </tr>`).join("") + `</tbody></table>`;
+}
+
+$("scatter-table-toggle").addEventListener("click", (e) => {
+  const on = e.target.getAttribute("aria-pressed") === "true";
+  e.target.setAttribute("aria-pressed", String(!on));
+  $("scatter-table").classList.toggle("hidden", on);
+  $("scatter").classList.toggle("hidden", !on);
+});
+
+// ------------------------------------------------------------ price history
+
+async function loadHistory(listingId, title) {
+  let data;
+  try {
+    data = await api("/api/history/" + encodeURIComponent(listingId));
+  } catch (err) {
+    $("history").innerHTML = `<div class="empty">Ne mogu da učitam istoriju: ${esc(err.message)}</div>`;
+    return;
+  }
+  const snaps = (data.snapshots || []).filter((s) => s.price != null);
+  // Snapshots also record mileage moves, so an ad can have several of them and
+  // a flat price. Say which it is rather than showing an unexplained flat line.
+  const flat = snaps.length > 1 && snaps.every((s) => s.price === snaps[0].price);
+  $("history-note").textContent = !title ? ""
+    : flat ? `${title} — cena se nije menjala; snimci potiču od promene kilometraže.`
+           : `${title} — svaka tačka je dan kad se cena promenila.`;
+
+  if (snaps.length < 2) {
+    $("history").innerHTML = `<div class="empty">
+      Ovaj oglas ima samo jednu zabeleženu cenu.<br>
+      Istorija nastaje tek kad se cena promeni — vrati se za koji dan.</div>`;
+    return;
+  }
+
+  const t = snaps.map((s) => new Date(s.seen_at).getTime());
+  const xa = { lo: Math.min(...t), hi: Math.max(...t) };
+  const ya = nice(Math.min(...snaps.map((s) => s.price)), Math.max(...snaps.map((s) => s.price)));
+  xa.step = (xa.hi - xa.lo) / 4 || 1;
+  xa.scale = scale(xa.lo, xa.hi, M.l, W - M.r);
+  ya.scale = scale(ya.lo, ya.hi, H - M.b, M.t);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Istorija cene">`;
+  svg += axes(xa, ya, "datum", "cena (€)",
+    (v) => day(new Date(v).toISOString()), eurTick);
+
+  const path = snaps.map((s, i) =>
+    `${i ? "L" : "M"}${xa.scale(t[i]).toFixed(1)},${ya.scale(s.price).toFixed(1)}`).join(" ");
+  svg += `<path class="series-line" d="${path}" />`;
+
+  snaps.forEach((s, i) => {
+    svg += `<circle class="dot" cx="${xa.scale(t[i])}" cy="${ya.scale(s.price)}" r="5" fill="var(--series-1)" />`;
+    // Generous hit target: the 5px mark is too small to aim at.
+    svg += `<rect class="hit" data-i="${i}" x="${xa.scale(t[i]) - 18}" y="${M.t}" width="36" height="${H - M.b - M.t}" />`;
+  });
+
+  // Endpoints get direct labels so the chart reads without hovering.
+  const first = snaps[0], last = snaps[snaps.length - 1];
+  svg += `<text class="tick" x="${xa.scale(t[0]) + 10}" y="${ya.scale(first.price) - 10}">${eur(first.price)}</text>`;
+  svg += `<text class="tick" x="${xa.scale(t[t.length - 1]) - 10}" y="${ya.scale(last.price) - 10}" `
+       + `text-anchor="end" style="font-weight:600">${eur(last.price)}</text>`;
+  svg += `</svg>`;
+  $("history").innerHTML = svg;
+
+  $("history").querySelectorAll(".hit").forEach((el) => {
+    const i = +el.dataset.i, s = snaps[i];
+    el.addEventListener("mousemove", (e) => {
+      const prev = i ? snaps[i - 1].price : null;
+      const delta = prev != null ? s.price - prev : null;
+      showTip(e, `<b>${eur(s.price)}</b><br><span class="k">${day(s.seen_at)}</span>`
+        + (delta ? `<br><span class="${delta < 0 ? "down" : "up"}">${delta > 0 ? "+" : "−"}${eur(Math.abs(delta))}</span>` : "")
+        + (s.mileage ? `<br><span class="k">${km(s.mileage)}</span>` : ""));
+    });
+    el.addEventListener("mouseleave", hideTip);
+  });
+}
+
+// ------------------------------------------------------------------ drops
+
+function renderDrops(rows) {
+  if (!rows.length) {
+    $("drops").innerHTML = `<div class="empty">
+      Još nijedan praćeni oglas nije snižen.<br>
+      Ovo se popunjava samo ako isti oglas vidiš više puta — zato vredi
+      da povremeno otvoriš istu pretragu.</div>`;
+    return;
+  }
+  $("drops").innerHTML = `<table><thead><tr>
+      <th>Oglas</th><th class="num">Bilo</th><th class="num">Sad</th>
+      <th class="num">Pad</th><th class="num">Praćen</th><th class="num">Kad</th>
+    </tr></thead><tbody>` + rows.map((r) => `<tr>
+      <td>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title || r.id)}</a>`
+                  : esc(r.title || r.id)}</td>
+      <td class="num">${eur(r.price_before)}</td>
+      <td class="num">${eur(r.price_now)}</td>
+      <td class="num down">−${String(r.drop_pct).replace(".", ",")}%</td>
+      <td class="num">${r.days_tracked ?? 0} d</td>
+      <td class="num">${day(r.changed_at)}</td>
+    </tr>`).join("") + `</tbody></table>`;
+}
+
+// ------------------------------------------------------------------- tiles
+
+function renderTiles(s) {
+  const days = s.first_seen
+    ? Math.max(1, Math.round((Date.now() - new Date(s.first_seen)) / 864e5)) : 0;
+  const tiles = [
+    ["Oglasa praćeno", fmt(s.listings), `${s.models || 0} modela`],
+    ["Snimaka cena", fmt(s.snapshots), "samo stvarne promene"],
+    ["Sa promenom cene", fmt(s.price_changes),
+      s.listings ? `${Math.round(100 * s.price_changes / s.listings)}% praćenih` : ""],
+    ["Dana istorije", fmt(days), days < 7 ? "tek počinje" : "raste svaki dan"],
+  ];
+  $("tiles").innerHTML = tiles.map(([label, value, meta]) =>
+    `<div class="tile"><div class="label">${esc(label)}</div>
+     <div class="value">${esc(value)}</div><div class="meta">${esc(meta)}</div></div>`).join("");
+  $("range").textContent = s.first_seen
+    ? `prati od ${day(s.first_seen)}` : "još bez podataka";
+}
+
+// -------------------------------------------------------------------- boot
+
+async function boot() {
+  try {
+    const [summary, models, drops] = await Promise.all([
+      api("/api/summary"), api("/api/models"), api("/api/drops?limit=40"),
+    ]);
+    renderTiles(summary);
+    renderDrops(drops);
+
+    const usable = models.filter((m) => m.n_priced > 0);
+    const picker = $("model-picker");
+    if (!usable.length) {
+      picker.innerHTML = `<option>nema podataka</option>`;
+      renderScatter([]);
+      $("history").innerHTML = `<div class="empty">Čeka prve oglase.</div>`;
+      return;
+    }
+    picker.innerHTML = usable.map((m) => {
+      const name = [m.brand, m.model].filter(Boolean).join(" ") || "bez modela (otvori detalje oglasa)";
+      return `<option value="${esc(m.brand || "")}|${esc(m.model || "")}">${esc(name)} — ${m.n} ogl.</option>`;
+    }).join("");
+
+    const load = async () => {
+      const [brand, model] = picker.value.split("|");
+      const qs = new URLSearchParams({ limit: "1000" });
+      if (brand) qs.set("brand", brand);
+      if (model) qs.set("model", model);
+      renderScatter(await api("/api/listings?" + qs));
+    };
+    picker.addEventListener("change", load);
+    await load();
+  } catch (err) {
+    document.querySelector(".wrap").insertAdjacentHTML("afterbegin",
+      `<div class="card"><h2>Greška</h2><p class="note">${esc(err.message)}
+       — da li collector radi? <code>python3 server/server.py</code></p></div>`);
+  }
+}
+boot();
+</script>
+</body>
+</html>
