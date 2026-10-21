@@ -32,6 +32,25 @@ const Radar = (() => {
     return Number.isFinite(n) ? n : null;
   }
 
+  /* One number, not several glued together.
+   *
+   * The first version allowed whitespace inside the digit run, so card text
+   * like "Advance 4 42.999 €" parsed as 442999 and "3 47.000 km" as 347000 —
+   * both seen on the live site. Thousands groups must be exactly three digits,
+   * which makes the stray leading digit fail to attach and lets the match
+   * restart on the real number.
+   */
+  const SEP = '[.\\u00a0\\u202f ]';
+  const NUM = `\\d{1,3}(?:${SEP}\\d{3})+|\\d+(?:,\\d+)?`;
+
+  /* The lookbehind is what makes it safe. Without it the engine happily starts
+   * mid-number: in "2024 347.000 km" it matched "024 347.000" — reading the
+   * gap as a thousands separator — and produced 24.347.000 km. Refusing to
+   * begin straight after a digit forces the match onto a real number boundary.
+   */
+  const PRICE_RE = new RegExp(`(?<!\\d)(${NUM})\\s*(€|eur|rsd|din\\b)`, 'i');
+  const MILEAGE_RE = new RegExp(`(?<!\\d)(${NUM})\\s*km\\b`, 'i');
+
   // Outside these bands a "price" is a misread, not a bargain or a supercar.
   // Reporting null is safe: the collector keeps the last known price rather
   // than reading the gap as a change.
@@ -41,7 +60,7 @@ const Radar = (() => {
     if (!text) return null;
     const t = String(text).replace(/[  ]/g, ' ');
     if (/po\s*dogovoru|na\s*upit/i.test(t)) return { price: null, currency: null, on_request: true };
-    const m = t.match(/([\d][\d.,\s]*)\s*(€|eur|rsd|din\b)/i);
+    const m = t.match(PRICE_RE);
     if (!m) return null;
     const value = toNumber(m[1]);
     const currency = /€|eur/i.test(m[2]) ? 'EUR' : 'RSD';
@@ -53,7 +72,7 @@ const Radar = (() => {
 
   function parseMileage(text) {
     if (!text) return null;
-    const m = String(text).replace(/[  ]/g, ' ').match(/([\d][\d.,\s]*)\s*km\b/i);
+    const m = String(text).match(MILEAGE_RE);
     if (!m) return null;
     const v = toNumber(m[1]);
     return v != null && v >= 0 && v < 2_000_000 ? Math.round(v) : null;
@@ -277,11 +296,52 @@ const Radar = (() => {
 
     return {
       brand: titleCase(brand.replace(/-/g, ' ')),
-      model: model.length ? titleCase(model.join(' ')) : null,
+      model: modelCase(model),
     };
   }
 
+  /* Initial-style model names keep their hyphen and go uppercase ("cr","v" ->
+   * "CR-V"); word-style ones read as words ("c","klasa" -> "C Klasa"). The
+   * detail page overrides either way, so this only has to be plausible. */
+  function modelCase(tokens) {
+    if (!tokens.length) return null;
+    const initials = tokens.every((t) => t.length <= 2);
+    return initials
+      ? tokens.map((t) => t.toUpperCase()).join('-')
+      : titleCase(tokens.join(' '));
+  }
+
   // ------------------------------------------------------------ search page
+
+  /* Cards print fuel and gearbox as bare words rather than labelled rows, so
+   * match the vocabulary directly. Word boundaries matter: "Benzin" must not
+   * fire on "Benzinska pumpa" in a dealer's name. */
+  const CARD_WORDS = {
+    // Most specific first: "Benzin + gas" would otherwise be caught by "Benzin".
+    fuel: [
+      [/\bbenzin\s*\+\s*gas\b|\bTNG\b/i, 'Benzin + gas'],
+      [/\bmetan\b|\bCNG\b/i, 'Metan CNG'],
+      [/\bhibrid/i, 'Hibridni pogon'],
+      [/\belektro\b|\belektri[čc]ni\b/i, 'Električni pogon'],
+      [/\bdizel\b/i, 'Dizel'],
+      [/\bbenzin\b/i, 'Benzin'],
+    ],
+    transmission: [
+      [/\bautomatski\b|\bautomatik\b/i, 'Automatski'],
+      [/\bpoluautomatski\b/i, 'Poluautomatski'],
+      [/\bmanuelni\b/i, 'Manuelni'],
+    ],
+  };
+
+  function fromCardWords(text) {
+    const out = {};
+    for (const [field, rules] of Object.entries(CARD_WORDS)) {
+      for (const [re, value] of rules) {
+        if (re.test(text)) { out[field] = value; break; }
+      }
+    }
+    return out;
+  }
 
   /** Smallest ancestor of `a` that still describes exactly one listing. */
   function pickCard(a) {
@@ -332,6 +392,7 @@ const Radar = (() => {
         on_request: priceInfo.on_request ?? false,
         mileage: parseMileage(text),
         year: parseYear(text),
+        ...fromCardWords(text),
         via: 'search-card',
       };
 
@@ -340,6 +401,15 @@ const Radar = (() => {
       const filled = (r) => ['price', 'mileage', 'year', 'title'].filter((k) => r[k] != null).length;
       const prev = byId.get(rec.external_id);
       if (!prev || filled(rec) > filled(prev)) byId.set(rec.external_id, rec);
+    }
+
+    // Result pages ship __NEXT_DATA__ too, and it carries exact values for the
+    // same ads — fuel and transmission among them, which card text does not
+    // reliably show. Where it covers an ad, it wins over the text guesses.
+    for (const rec of fromFrameworkState()) {
+      const card = byId.get(rec.external_id);
+      if (!card) { byId.set(rec.external_id, rec); continue; }
+      byId.set(rec.external_id, { ...card, ...prune(rec), via: 'framework-state' });
     }
 
     return [...byId.values()];
@@ -464,5 +534,5 @@ const Radar = (() => {
     };
   }
 
-  return { scan, debugReport, toNumber, parsePrice, parseMileage, parseYear, fromSlug, SITE };
+  return { scan, debugReport, toNumber, parsePrice, parseMileage, parseYear, fromSlug, fromCardWords, SITE };
 })();
