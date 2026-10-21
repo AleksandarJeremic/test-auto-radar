@@ -412,7 +412,21 @@ const Radar = (() => {
       byId.set(rec.external_id, { ...card, ...prune(rec), via: 'framework-state' });
     }
 
-    return [...byId.values()];
+    /* Not every ad link on the page is a search result. Sidebars, carousels
+     * and "recently viewed" blocks link to ads too, and a live page that held
+     * 5 results yielded 7 records — two of them nothing but a title.
+     *
+     * Such a record would enter the database as an ad with no price and no
+     * history, inflating the counts with ads that were never in the result
+     * set. Since the dataset's credibility is the whole product, dropping a
+     * record the parser could not resolve beats inventing one: a genuine miss
+     * still shows up as a gap between listing_anchors and extracted.
+     */
+    const results = [...byId.values()];
+    const usable = results.filter(isUsableResult);
+
+    scanStats.droppedBare = results.length - usable.length;
+    return usable;
   }
 
   // ------------------------------------------------------------ detail page
@@ -493,8 +507,19 @@ const Radar = (() => {
     };
   }
 
+  /** A record is a real result only if something beyond its title resolved. */
+  function isUsableResult(r) {
+    return r.via === 'framework-state' || !!r.on_request ||
+      r.price != null || r.mileage != null || r.year != null;
+  }
+
+  // Counters a scan leaves behind for the debug report. Module-level because
+  // scan() returns the payload the collector expects, not diagnostics.
+  const scanStats = { droppedBare: 0 };
+
   function scan() {
     const type = pageType();
+    scanStats.droppedBare = 0;
     let listings = [];
     if (type === 'detail') listings = fromDetailPage();
     else if (type === 'search') listings = fromSearchPage();
@@ -521,6 +546,10 @@ const Radar = (() => {
         extracted: payload.listings.length,
         json_ld_blocks: document.querySelectorAll('script[type="application/ld+json"]').length,
         next_data: document.querySelectorAll('script#__NEXT_DATA__').length,
+        // Ad links that resolved to nothing but a title — sidebar and carousel
+        // links, not results. Should roughly account for the gap between
+        // listing_anchors and extracted.
+        dropped_bare: scanStats.droppedBare,
       },
       via_breakdown: payload.listings.reduce((acc, r) => {
         acc[r.via] = (acc[r.via] || 0) + 1;
@@ -546,5 +575,6 @@ const Radar = (() => {
   const DEBUG_FIELDS = ['price', 'mileage', 'year', 'title', 'fuel', 'transmission', 'brand', 'model'];
   const resolved = (r) => DEBUG_FIELDS.filter((k) => r[k] != null && r[k] !== '').length;
 
-  return { scan, debugReport, toNumber, parsePrice, parseMileage, parseYear, fromSlug, fromCardWords, SITE };
+  return { scan, debugReport, toNumber, parsePrice, parseMileage, parseYear,
+             fromSlug, fromCardWords, isUsableResult, SITE };
 })();

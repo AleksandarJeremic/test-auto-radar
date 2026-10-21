@@ -41,6 +41,21 @@ eq('hibrid', Radar.fromCardWords("2.0 Hybrid Advance hibridni").fuel, "Hibridni 
 eq('nema goriva u tekstu', Radar.fromCardWords("Honda CR-V 2026").fuel, undefined);
 eq('ne pali na "Benzinska pumpa"', Radar.fromCardWords("Auto placa Benzinska pumpa doo").fuel, undefined);
 
+print("\nOdbacivanje linkova koji nisu rezultati");
+const bare   = {external_id:"1", title:"Honda CR-V", via:"search-card"};
+const priced = {external_id:"2", title:"Honda CR-V", price:42999, via:"search-card"};
+const onReq  = {external_id:"3", title:"Honda CR-V", on_request:true, via:"search-card"};
+const yearly = {external_id:"4", title:"Honda CR-V", year:2024, via:"search-card"};
+const fromNd = {external_id:"5", title:"Honda CR-V", via:"framework-state"};
+eq('gol link (samo naslov) odbacen', Radar.isUsableResult(bare), false);
+eq('sa cenom prolazi', Radar.isUsableResult(priced), true);
+eq('"po dogovoru" prolazi', Radar.isUsableResult(onReq), true);
+eq('samo godiste prolazi', Radar.isUsableResult(yearly), true);
+eq('iz __NEXT_DATA__ uvek prolazi', Radar.isUsableResult(fromNd), true);
+const mileaged = {external_id:"6", title:"Honda CR-V", mileage:47000, via:"search-card"};
+eq('5 pravih + 2 gola -> 5 (slucaj sa zivog sajta)',
+   [priced,onReq,yearly,fromNd,mileaged,bare,bare].filter(Radar.isUsableResult).length, 5);
+
 print("\n" + (fails ? `IMA ${fails} PADOVA` : "SVE PROLAZI"));
 
 // jsc does not expose a process exit code, so signal failure by throwing.
