@@ -36,7 +36,16 @@ Bez ijedne zavisnosti — ni pip, ni venv, ni Node. Pri prvom pokretanju napravi
 3. **Load unpacked** → izaberi folder `extension/`
 4. Klikni ikonicu Auto Radar → nalepi token iz `server/token.txt`
 
-**3. Pregledaj aute**
+**3. Dashboard**
+
+Otvori <http://127.0.0.1:8787> dok collector radi. Token se ubacuje sam — stranica
+se servira sa istog loopback porta, pa ga ne moraš lepiti dvaput.
+
+Tri prikaza: cena prema kilometraži (tačke ispod trend linije su jeftinije nego
+što im kilometraža nalaže), istorija cene za pojedinačni oglas, i tabela
+sniženih. Grafikoni su inline SVG — bez ijedne JS biblioteke.
+
+**4. Pregledaj aute**
 
 Otvori pretragu na polovniautomobili.com. Brojači u popup-u treba da skoče.
 Ako ne skoče, vidi *Kad parser ne uhvati* niže.
@@ -92,21 +101,22 @@ SELECT via, COUNT(*) FROM snapshots GROUP BY via ORDER BY 2 DESC;
 
 ## Status
 
-Faza 1 — skupljanje. Radi i testirano:
+Faza 1 — skupljanje i prikaz. Radi i testirano:
 
-- `python3 -m unittest` nema; testovi su skripte, vidi istoriju razgovora
 - ingest, detekcija promena, dopuna iz detaljne stranice, padovi cena: 16/16
 - parseri cena/km/godišta (sr-RS format): 23/23
+- dashboard proveren uživo na 44 oglasa kroz 7 nedelja, u light i dark temi
 
 Nije još urađeno:
 
 - **DOM selektori nisu provereni na živoj stranici** — brojevi i labele jesu,
   ali raspored kartica nije, jer sajt blokira pristup van pravog browsera.
   Zato postoji *Kopiraj debug*.
-- Dashboard sa grafikonima
-- Deal score (predviđena vs. tražena cena)
+- Deal score kao broj (trend linija postoji, ocena po oglasu ne)
 - Telegram alerti
 - Detekcija nestalih oglasa (`gone_since` kolona postoji, sweep ne)
+- Normalizacija modela — `brand`/`model` se popune tek kad otvoriš detalje
+  oglasa; dok su prazni, oglasi se u izborniku grupišu zajedno
 
 ## Pravna napomena
 
