@@ -162,15 +162,34 @@ SELECT via, COUNT(*) FROM snapshots GROUP BY via ORDER BY 2 DESC;
 Faza 1 — skupljanje i prikaz. Radi i testirano:
 
 ```bash
-python3 server/server.py --port 8799 --db server/test.db   # pa u drugom terminalu:
-node extension/test/crawler.test.mjs                       # logika obilaska: 30/30
+./test.sh     # podigne collector na zasebnoj bazi, pusti sve pakete, pospremi
 ```
 
-- ingest, detekcija promena, dopuna iz detaljne stranice, padovi cena: 16/16
-- parseri cena/km/godišta (sr-RS format): 23/23
+- ingest, detekcija promena, dopuna iz detaljne stranice, padovi cena: 16
+- spajanje snimaka i autoritet izvora: 13
+- parseri cena/km/godišta (sr-RS format): 23
+- marka/model iz slug-a i granice cena: 15
 - crawler: robots lista, dedupe, dnevni limit, dubina, ponovna poseta,
-  odblokiranje zaglavljenog taba: 30/30
+  odblokiranje zaglavljenog taba: 30
 - dashboard proveren uživo na 44 oglasa kroz 7 nedelja, u light i dark temi
+
+Provereno i na živom sajtu: detaljna stranica se čita preko `framework-state`
+sa gotovo svim poljima; kartice u pretrazi daju naslov, cenu, kilometražu i
+godište.
+
+### Zašto snimak nasleđuje nepoznata polja
+
+Prvi test uživo je otkrio najopasniju moguću grešku: kartica iz pretrage nema
+cenu, pa je oglas kom je detaljna stranica već utvrdila €25.990 dobio novi
+snimak sa `price = NULL` — dakle **izmišljen događaj „cena nestala"**. Lažni
+padovi cena bi obesmislili ceo projekat.
+
+Zato sada nepoznato polje nasleđuje poslednju poznatu vrednost umesto da je
+briše, a prelazak na „po dogovoru" se i dalje beleži, jer stiže kao
+`on_request`, ne kao rupa. Iz istog razloga izvori nisu ravnopravni:
+`framework-state`, `json-ld` i `spec-labels` smeju da **isprave** zatečenu
+vrednost, dok `search-card` i pogađanje iz slug-a smeju samo da **popune
+prazno**.
 
 Nije još urađeno:
 

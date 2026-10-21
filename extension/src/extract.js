@@ -32,6 +32,11 @@ const Radar = (() => {
     return Number.isFinite(n) ? n : null;
   }
 
+  // Outside these bands a "price" is a misread, not a bargain or a supercar.
+  // Reporting null is safe: the collector keeps the last known price rather
+  // than reading the gap as a change.
+  const PRICE_BOUNDS = { EUR: [200, 400_000], RSD: [20_000, 50_000_000] };
+
   function parsePrice(text) {
     if (!text) return null;
     const t = String(text).replace(/[  ]/g, ' ');
@@ -39,12 +44,11 @@ const Radar = (() => {
     const m = t.match(/([\d][\d.,\s]*)\s*(€|eur|rsd|din\b)/i);
     if (!m) return null;
     const value = toNumber(m[1]);
-    if (value == null || value < 100) return null;
-    return {
-      price: Math.round(value),
-      currency: /€|eur/i.test(m[2]) ? 'EUR' : 'RSD',
-      on_request: false,
-    };
+    const currency = /€|eur/i.test(m[2]) ? 'EUR' : 'RSD';
+    const [lo, hi] = PRICE_BOUNDS[currency];
+    if (value == null || value < lo || value > hi) return null;
+
+    return { price: Math.round(value), currency, on_request: false };
   }
 
   function parseMileage(text) {
@@ -227,6 +231,56 @@ const Radar = (() => {
     };
   }
 
+  // ------------------------------------------------------- slug inference
+
+  /* Search cards carry no brand/model fields, but the ad URL ends in a slug
+   * that starts with them: /auto-oglasi/29093553/hyundai-tucson-16-tgdi-...
+   * Longest-prefix match against a brand list, because several brands are
+   * themselves hyphenated and a naive split would cut "alfa-romeo" in half.
+   * Values derived here are a stopgap — the collector lets a detail page
+   * overwrite them and never the other way round.
+   */
+  const BRANDS = [
+    'alfa-romeo', 'aston-martin', 'great-wall', 'land-rover', 'range-rover',
+    'mercedes-benz', 'rolls-royce', 'ssangyong', 'dr-automobiles',
+    'abarth', 'acura', 'audi', 'bentley', 'bmw', 'buick', 'bydcadillac',
+    'cadillac', 'chevrolet', 'chrysler', 'citroen', 'cupra', 'dacia', 'daewoo',
+    'daihatsu', 'dodge', 'ds', 'ferrari', 'fiat', 'ford', 'honda', 'hummer',
+    'hyundai', 'infiniti', 'isuzu', 'iveco', 'jaguar', 'jeep', 'kia',
+    'lada', 'lamborghini', 'lancia', 'lexus', 'lincoln', 'lotus', 'maserati',
+    'mazda', 'mg', 'mini', 'mitsubishi', 'nissan', 'opel', 'peugeot',
+    'polestar', 'pontiac', 'porsche', 'renault', 'rover', 'saab', 'seat',
+    'skoda', 'smart', 'subaru', 'suzuki', 'tesla', 'toyota', 'volkswagen',
+    'volvo', 'yugo', 'zastava',
+  ].sort((a, b) => b.length - a.length);
+
+  const titleCase = (s) => s.replace(/\b[a-zčćđšž]/g, (c) => c.toUpperCase());
+
+  const SLUG_RE = /\/auto-oglasi\/\d+\/([^/?#]+)/;
+
+  function fromSlug(url) {
+    const slug = (String(url || '').match(SLUG_RE)?.[1] || '').toLowerCase();
+    if (!slug) return {};
+
+    const brand = BRANDS.find((b) => slug === b || slug.startsWith(b + '-'));
+    if (!brand) return {};
+
+    const rest = slug.slice(brand.length).split('-').filter(Boolean);
+    const model = [];
+    for (const token of rest) {
+      // Engine displacement ("16", "20") marks the end of the model name;
+      // a lone digit does not, or "golf-7" would come out as just "golf".
+      if (/^\d{2,}$/.test(token)) break;
+      model.push(token);
+      if (model.length === 2) break;
+    }
+
+    return {
+      brand: titleCase(brand.replace(/-/g, ' ')),
+      model: model.length ? titleCase(model.join(' ')) : null,
+    };
+  }
+
   // ------------------------------------------------------------ search page
 
   /** Smallest ancestor of `a` that still describes exactly one listing. */
@@ -267,10 +321,12 @@ const Radar = (() => {
       const text = (card.innerText || '').replace(/\s+/g, ' ').trim();
       const priceInfo = parsePrice(text) || {};
 
+      const url = new URL(a.getAttribute('href'), location.origin).href;
       const rec = {
         external_id: m[1],
-        url: new URL(a.getAttribute('href'), location.origin).href,
+        url,
         title: cardTitle(a, card),
+        ...fromSlug(url),
         price: priceInfo.price ?? null,
         currency: priceInfo.currency ?? null,
         on_request: priceInfo.on_request ?? false,
@@ -408,5 +464,5 @@ const Radar = (() => {
     };
   }
 
-  return { scan, debugReport, toNumber, parsePrice, parseMileage, parseYear, SITE };
+  return { scan, debugReport, toNumber, parsePrice, parseMileage, parseYear, fromSlug, SITE };
 })();

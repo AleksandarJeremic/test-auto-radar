@@ -1,5 +1,6 @@
 server/token.txt
 server/*.db
+server/.test-run.db*
 server/*.db-wal
 server/*.db-shm
 __pycache__/

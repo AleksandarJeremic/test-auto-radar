@@ -149,9 +149,17 @@ def ingest(conn: sqlite3.Connection, payload: dict) -> dict:
                 )
                 new_count += 1
             else:
-                # Search cards are sparse; a later detail view fills the gaps.
-                # COALESCE keeps whichever source actually knew the value.
-                sets = ", ".join(f"{k} = COALESCE(?, {k})" for k in LISTING_FIELDS)
+                # Not all readings are equally trustworthy. Structured sources
+                # (the site's own state, JSON-LD, labelled spec rows) may
+                # correct what is already stored; values guessed from a search
+                # card or a URL slug may only fill holes, never overwrite —
+                # otherwise "Cr V" scraped from a slug would permanently
+                # displace the authoritative "CR-V".
+                authoritative = rec.get("via") in ("framework-state", "json-ld", "spec-labels")
+                sets = ", ".join(
+                    f"{k} = COALESCE(?, {k})" if authoritative else f"{k} = COALESCE({k}, ?)"
+                    for k in LISTING_FIELDS
+                )
                 conn.execute(
                     f"""UPDATE listings
                            SET {sets},
@@ -163,10 +171,23 @@ def ingest(conn: sqlite3.Connection, payload: dict) -> dict:
                 )
 
             last = conn.execute(
-                """SELECT price, mileage, on_request FROM snapshots
+                """SELECT price, currency, mileage, on_request FROM snapshots
                     WHERE listing_id = ? ORDER BY seen_at DESC, id DESC LIMIT 1""",
                 (lid,),
             ).fetchone()
+
+            # A search card is sparser than a detail page: it often carries no
+            # price at all. Without this, a later card reading None would look
+            # like "the price vanished" and write a bogus change event — the one
+            # kind of error that would discredit the whole price history. So an
+            # unknown field inherits the last known value instead of erasing it.
+            # A genuine switch to "po dogovoru" still registers, because that
+            # arrives as on_request rather than as a missing price.
+            if last is not None and not on_request:
+                if price is None:
+                    price, currency = last["price"], last["currency"]
+                if mileage is None:
+                    mileage = last["mileage"]
 
             unchanged = (
                 last is not None
